@@ -130,6 +130,18 @@ def build_response(phone: str) -> str:
     return "\n".join(lines).strip()
 
 
+def is_bot_mentioned(msg, bot_username: str) -> bool:
+    """Хабарламада бот mention болған ба тексереді."""
+    if not msg.entities:
+        return False
+    for entity in msg.entities:
+        if entity.type == "mention":
+            mention_text = msg.text[entity.offset: entity.offset + entity.length]
+            if mention_text.lower() == f"@{bot_username.lower()}":
+                return True
+    return False
+
+
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Группадағы хабарламаларды өңдейді."""
     msg = update.message
@@ -140,8 +152,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if msg.chat_id != GROUP_ID:
         return
 
+    # Тек бот mention болғанда жауап береді
+    bot_username = context.bot.username
+    if not is_bot_mentioned(msg, bot_username):
+        return
+
     phones = extract_phones(msg.text)
     if not phones:
+        await msg.reply_text("📵 Нөмір табылмады. Мысалы: @bot +77001234567", parse_mode="Markdown")
         return
 
     for phone in phones:
