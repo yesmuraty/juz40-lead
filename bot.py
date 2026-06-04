@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
 AMO_TOKEN = os.environ.get("AMO_TOKEN")
 AMO_DOMAIN = os.environ.get("AMO_DOMAIN", "juz40online")
-GROUP_ID = int(os.environ.get("GROUP_ID", "-1002234853365"))
+GROUP_ID = int(os.environ.get("GROUP_ID", "-1002234853365,-5061043533"))
 
 AMO_BASE = f"https://{AMO_DOMAIN}.amocrm.ru/api/v4"
 HEADERS = {
