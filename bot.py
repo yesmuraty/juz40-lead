@@ -84,6 +84,18 @@ def get_user(user_id: int) -> str:
     return "Белгісіз"
 
 
+def update_contact_responsible(contact_id: int, responsible_user_id: int) -> bool:
+    """Контакттың ответственный менеджерін ауыстырады."""
+    url = f"{AMO_BASE}/contacts/{contact_id}"
+    payload = {"responsible_user_id": responsible_user_id}
+    try:
+        resp = requests.patch(url, headers=HEADERS, json=payload, timeout=10)
+        return resp.status_code == 200
+    except Exception as e:
+        logger.error(f"Contact update error: {e}")
+        return False
+
+
 def build_response(phone: str) -> str:
     """Нөмір бойынша толық жауап жасайды."""
     contact = search_contact_by_phone(phone)
@@ -130,6 +142,65 @@ def build_response(phone: str) -> str:
     return "\n".join(lines).strip()
 
 
+def extract_lead_id(text: str) -> int | None:
+    """Мәтіннен amoCRM lead ссылкасының ID-сін табады."""
+    match = re.search(r'amocrm\.ru/leads/detail/(\d+)', text)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+def sync_contact_responsible(lead_id: int) -> str:
+    """Сделканың ответственныйын сол сделкадағы контактқа көшіреді."""
+    lead = get_lead(lead_id)
+    if not lead:
+        return f"❌ Сделка табылмады (ID: {lead_id})"
+
+    lead_name = lead.get("name", "Сделка")
+    lead_responsible_id = lead.get("responsible_user_id")
+    if not lead_responsible_id:
+        return "❌ Сделкада ответственный анықталмаған"
+
+    manager_name = get_user(lead_responsible_id)
+
+    contacts = lead.get("_embedded", {}).get("contacts", [])
+    if not contacts:
+        return f"❌ Сделкада ({lead_name}) контакт табылмады"
+
+    contact_id = contacts[0]["id"]
+
+    # Контакттың қазіргі мәліметін аламыз (аты үшін)
+    contact_url_api = f"{AMO_BASE}/contacts/{contact_id}"
+    try:
+        resp = requests.get(contact_url_api, headers=HEADERS, timeout=10)
+        contact_data = resp.json() if resp.status_code == 200 else {}
+    except Exception:
+        contact_data = {}
+
+    contact_name = contact_data.get("name", "Аты жоқ")
+    current_responsible_id = contact_data.get("responsible_user_id")
+
+    if current_responsible_id == lead_responsible_id:
+        return (
+            f"ℹ️ *{contact_name}* контактының ответственныйы\n"
+            f"бұрыннан *{manager_name}* болып тұрған, өзгеріс жасалмады"
+        )
+
+    success = update_contact_responsible(contact_id, lead_responsible_id)
+    contact_url = f"https://{AMO_DOMAIN}.amocrm.ru/contacts/detail/{contact_id}"
+
+    if success:
+        return (
+            f"✅ Ауыстырылды!\n"
+            f"👤 *Контакт:* [{contact_name}]({contact_url})\n"
+            f"📋 *Сделка:* {lead_name}\n"
+            f"🔄 Жаңа ответственный: *{manager_name}*"
+        )
+    else:
+        return "❌ Контактты ауыстыру кезінде қате шықты"
+
+
+
 def is_bot_mentioned(msg, bot_username: str) -> bool:
     """Хабарламада бот mention болған ба тексереді."""
     if not msg.entities:
@@ -152,7 +223,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if msg.chat_id != GROUP_ID:
         return
 
-    # Тек бот mention болғанда жауап береді
+    # 1) Lead ссылкасы бар ма? Mention керек емес, барлық менеджер қолдана алады
+    lead_id = extract_lead_id(msg.text)
+    if lead_id:
+        response = sync_contact_responsible(lead_id)
+        await msg.reply_text(response, parse_mode="Markdown", disable_web_page_preview=True)
+        return
+
+    # 2) Телефон нөмірін табу — тек бот mention болғанда жұмыс істейді
     bot_username = context.bot.username
     if not is_bot_mentioned(msg, bot_username):
         return
