@@ -1,18 +1,9 @@
 import os
 import re
 import logging
-import asyncio
 import requests
-from datetime import datetime
-import pytz
 from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from aiohttp import web
-
-import db
-import webhook_server
-import report
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -21,15 +12,12 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 AMO_TOKEN = os.environ.get("AMO_TOKEN")
 AMO_DOMAIN = os.environ.get("AMO_DOMAIN", "juz40online")
 GROUP_ID = int(os.environ.get("GROUP_ID", "-1002234853365"))
-PORT = int(os.environ.get("PORT", "8080"))
 
 AMO_BASE = f"https://{AMO_DOMAIN}.amocrm.ru/api/v4"
 HEADERS = {
     "Authorization": f"Bearer {AMO_TOKEN}",
     "Content-Type": "application/json"
 }
-
-ALMATY_TZ = pytz.timezone("Asia/Almaty")
 
 
 # =========================================================
@@ -257,76 +245,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await msg.reply_text(response, parse_mode="Markdown", disable_web_page_preview=True)
 
 
-# =========================================================
-# КҰНДЕЛІКТІ ЕСЕП (СРЕЗ) ЖІБЕРУ
-# =========================================================
-
-async def send_scheduled_report(app: Application):
-    """Жоспарланған уақытта группаға есеп жібереді."""
-    try:
-        report_text = report.build_report()
-        await app.bot.send_message(chat_id=GROUP_ID, text=report_text)
-        logger.info("Scheduled report sent successfully")
-    except Exception as e:
-        logger.error(f"send_scheduled_report error: {e}")
-        try:
-            await app.bot.send_message(chat_id=GROUP_ID, text=f"⚠️ Есеп жіберу кезінде қате: {e}")
-        except Exception:
-            pass
-
-
-def setup_scheduler(app: Application) -> AsyncIOScheduler:
-    """15:55, 18:25, 19:45 (Almaty уақыты) уақыттарына cron орнатады."""
-    scheduler = AsyncIOScheduler(timezone=ALMATY_TZ)
-
-    times = [(15, 55), (18, 25), (19, 45)]
-    for hour, minute in times:
-        scheduler.add_job(
-            send_scheduled_report,
-            "cron",
-            hour=hour,
-            minute=minute,
-            args=[app],
-            id=f"report_{hour}_{minute}",
-        )
-    scheduler.start()
-    logger.info(f"Scheduler started with jobs at: {times}")
-    return scheduler
-
-
-# =========================================================
-# MAIN — TELEGRAM BOT + WEBHOOK SERVER БІРГЕ ІСКЕ ҚОСУ
-# =========================================================
-
-async def run_webhook_server():
-    """aiohttp webhook серверін бөлек портта жұмыс істетеді."""
-    app = webhook_server.create_app()
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, "0.0.0.0", PORT)
-    await site.start()
-    logger.info(f"Webhook server listening on port {PORT}")
-
-
-async def main():
-    db.init_db()
-
-    application = Application.builder().token(BOT_TOKEN).build()
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    await application.initialize()
-    await application.start()
-    await application.updater.start_polling(drop_pending_updates=True)
-
-    setup_scheduler(application)
-    await run_webhook_server()
-
-    logger.info("Бот және webhook сервер іске қосылды...")
-
-    # Мәңгі жұмыс істеу үшін
-    stop_event = asyncio.Event()
-    await stop_event.wait()
+def main():
+    app = Application.builder().token(BOT_TOKEN).build()
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    logger.info("Бот іске қосылды...")
+    app.run_polling(drop_pending_updates=True)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
