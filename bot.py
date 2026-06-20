@@ -238,13 +238,13 @@ async def debug_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
             # params-ты қысқартып көрсетеміз
             params_preview = json.dumps(params, ensure_ascii=False)[:200]
             summary_lines.append(
-                f"type: `{note_type}` | created_at: {created_at}\nparams: `{params_preview}`\n"
+                f"type: {note_type} | created_at: {created_at}\nparams: {params_preview}\n"
             )
 
         full_text = "\n".join(summary_lines)
-        # Telegram хабарлама ұзындығы шектеулі, бөліп жіберу
+        # Telegram хабарлама ұзындығы шектеулі, бөліп жіберу (Markdown-сыз, plain text)
         for i in range(0, len(full_text), 3500):
-            await msg.reply_text(full_text[i:i+3500], parse_mode="Markdown")
+            await msg.reply_text(full_text[i:i+3500])
 
     except Exception as e:
         await msg.reply_text(f"❌ Қате: {e}")
