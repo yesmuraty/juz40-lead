@@ -201,7 +201,56 @@ def sync_contact_responsible(lead_id: int) -> str:
 
 
 
-def is_bot_mentioned(msg, bot_username: str) -> bool:
+import json
+from telegram.ext import CommandHandler
+
+
+async def debug_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """ВРЕМЕННАЯ команда: /debugnotes <lead_id> — notes структурасын көрсетеді."""
+    msg = update.message
+    if not msg:
+        return
+
+    args = msg.text.split()
+    if len(args) < 2:
+        await msg.reply_text("Қолданылуы: /debugnotes 34049172")
+        return
+
+    lead_id = args[1]
+    url = f"{AMO_BASE}/leads/{lead_id}/notes"
+    try:
+        resp = requests.get(url, headers=HEADERS, params={"limit": 10}, timeout=10)
+        if resp.status_code != 200:
+            await msg.reply_text(f"❌ HTTP {resp.status_code}: {resp.text[:500]}")
+            return
+        data = resp.json()
+        notes = data.get("_embedded", {}).get("notes", [])
+        if not notes:
+            await msg.reply_text("Notes табылмады")
+            return
+
+        # Әр note-тың note_type және негізгі құрылымын шығарамыз
+        summary_lines = [f"Барлығы: {len(notes)} note (соңғы 10)\n"]
+        for n in notes[:10]:
+            note_type = n.get("note_type")
+            params = n.get("params", {})
+            created_at = n.get("created_at")
+            # params-ты қысқартып көрсетеміз
+            params_preview = json.dumps(params, ensure_ascii=False)[:200]
+            summary_lines.append(
+                f"type: `{note_type}` | created_at: {created_at}\nparams: `{params_preview}`\n"
+            )
+
+        full_text = "\n".join(summary_lines)
+        # Telegram хабарлама ұзындығы шектеулі, бөліп жіберу
+        for i in range(0, len(full_text), 3500):
+            await msg.reply_text(full_text[i:i+3500], parse_mode="Markdown")
+
+    except Exception as e:
+        await msg.reply_text(f"❌ Қате: {e}")
+
+
+
     """Хабарламада бот mention болған ба тексереді."""
     if not msg.entities:
         return False
@@ -247,6 +296,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("debugnotes", debug_notes))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
     logger.info("Бот іске қосылды...")
     app.run_polling(drop_pending_updates=True)
