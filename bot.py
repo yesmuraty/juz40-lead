@@ -206,7 +206,7 @@ from telegram.ext import CommandHandler
 
 
 async def debug_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """ВРЕМЕННАЯ команда: /debugnotes <lead_id> — notes структурасын көрсетеді."""
+    """ВРЕМЕННАЯ команда: /debugnotes <lead_id> — бірнеше endpoint-ты тексереді."""
     msg = update.message
     if not msg:
         return
@@ -217,37 +217,37 @@ async def debug_notes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     lead_id = args[1]
-    url = f"{AMO_BASE}/leads/{lead_id}/notes"
-    try:
-        resp = requests.get(url, headers=HEADERS, params={"limit": 10}, timeout=10)
-        if resp.status_code != 200:
-            await msg.reply_text(f"❌ HTTP {resp.status_code}: {resp.text[:500]}")
-            return
-        data = resp.json()
-        notes = data.get("_embedded", {}).get("notes", [])
-        if not notes:
-            await msg.reply_text("Notes табылмады")
-            return
 
-        # Әр note-тың note_type және негізгі құрылымын шығарамыз
-        summary_lines = [f"Барлығы: {len(notes)} note (соңғы 10)\n"]
-        for n in notes[:10]:
-            note_type = n.get("note_type")
-            params = n.get("params", {})
-            created_at = n.get("created_at")
-            # params-ты қысқартып көрсетеміз
-            params_preview = json.dumps(params, ensure_ascii=False)[:200]
-            summary_lines.append(
-                f"type: {note_type} | created_at: {created_at}\nparams: {params_preview}\n"
-            )
+    endpoints_to_try = [
+        ("notes (note_type=chat_message)", f"{AMO_BASE}/leads/{lead_id}/notes", {"filter[note_type]": "chat_message", "limit": 10}),
+        ("notes (note_type=sms)", f"{AMO_BASE}/leads/{lead_id}/notes", {"filter[note_type]": "sms", "limit": 10}),
+        ("chats (v4)", f"{AMO_BASE}/leads/{lead_id}/chats", {}),
+        ("talks (v2 list)", f"https://{AMO_DOMAIN}.amocrm.ru/api/v2/talks", {"entity_type": "lead", "entity_id": lead_id}),
+    ]
 
-        full_text = "\n".join(summary_lines)
-        # Telegram хабарлама ұзындығы шектеулі, бөліп жіберу (Markdown-сыз, plain text)
-        for i in range(0, len(full_text), 3500):
-            await msg.reply_text(full_text[i:i+3500])
+    for label, url, params in endpoints_to_try:
+        try:
+            resp = requests.get(url, headers=HEADERS, params=params, timeout=10)
+            preview = resp.text[:400].replace("\n", " ")
+            await msg.reply_text(f"[{label}]\nstatus: {resp.status_code}\nbody: {preview}")
+        except Exception as e:
+            await msg.reply_text(f"[{label}] Қате: {e}")
 
-    except Exception as e:
-        await msg.reply_text(f"❌ Қате: {e}")
+    # Сонымен бірге, контактың чат данных бар-жоғын тексереміз
+    lead = get_lead(int(lead_id))
+    if lead:
+        contacts = lead.get("_embedded", {}).get("contacts", [])
+        if contacts:
+            contact_id = contacts[0]["id"]
+            try:
+                resp = requests.get(f"{AMO_BASE}/contacts/{contact_id}/notes", headers=HEADERS, params={"limit": 20}, timeout=10)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    notes = data.get("_embedded", {}).get("notes", [])
+                    types_found = set(n.get("note_type") for n in notes)
+                    await msg.reply_text(f"[contact notes] барлығы: {len(notes)}, types: {types_found}")
+            except Exception as e:
+                await msg.reply_text(f"[contact notes] Қате: {e}")
 
 
 
